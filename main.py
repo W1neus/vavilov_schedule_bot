@@ -1,5 +1,4 @@
 import logging
-import asyncio
 from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
