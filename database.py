@@ -14,12 +14,15 @@ def init_db():
                 notify_20 BOOLEAN DEFAULT 1,
                 notify_10 BOOLEAN DEFAULT 1,
                 notify_5 BOOLEAN DEFAULT 1,
-                notify_changes BOOLEAN DEFAULT 1
+                notify_changes BOOLEAN DEFAULT 1,
+                use_new_style BOOLEAN DEFAULT 0
             )
         ''')
         try: cursor.execute("ALTER TABLE users ADD COLUMN group_name TEXT")
         except sqlite3.OperationalError: pass
         try: cursor.execute("ALTER TABLE users ADD COLUMN notify_changes BOOLEAN DEFAULT 1")
+        except sqlite3.OperationalError: pass
+        try: cursor.execute("ALTER TABLE users ADD COLUMN use_new_style BOOLEAN DEFAULT 0")
         except sqlite3.OperationalError: pass
         
         cursor.execute('INSERT OR IGNORE INTO users (user_id, is_allowed) VALUES (?, 1)', (ADMIN_ID,))
@@ -53,7 +56,7 @@ def revoke_access_delete_user(user_id):
 def get_all_users_info():
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT user_id, is_allowed, group_name, notify_20, notify_10, notify_5, notify_changes FROM users')
+        cursor.execute('SELECT user_id, is_allowed, group_name, notify_20, notify_10, notify_5, notify_changes, use_new_style FROM users')
         return cursor.fetchall()
 
 def get_allowed_users_ids():
@@ -78,16 +81,23 @@ def get_user_group(user_id):
 def get_user_settings(user_id):
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT notify_20, notify_10, notify_5, notify_changes FROM users WHERE user_id = ?', (user_id,))
+        cursor.execute('SELECT notify_20, notify_10, notify_5, notify_changes, use_new_style FROM users WHERE user_id = ?', (user_id,))
         return cursor.fetchone()
 
 def toggle_setting(user_id, setting_name):
-    valid = ['notify_20', 'notify_10', 'notify_5', 'notify_changes']
+    valid = ['notify_20', 'notify_10', 'notify_5', 'notify_changes', 'use_new_style']
     if setting_name not in valid: return
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute(f'UPDATE users SET {setting_name} = 1 - {setting_name} WHERE user_id = ?', (user_id,))
         conn.commit()
+
+def get_user_style(user_id):
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT use_new_style FROM users WHERE user_id = ?', (user_id,))
+        res = cursor.fetchone()
+        return bool(res[0]) if res else False
 
 def get_users_for_change_notification():
     with sqlite3.connect(DB_FILE) as conn:

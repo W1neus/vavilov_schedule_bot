@@ -1,5 +1,6 @@
 import datetime
 import asyncio
+import logging
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
@@ -9,10 +10,12 @@ from config import (
     ADMIN_ID, TZ_SARATOV, schedule_cache, CLASS_TIMES, 
     TIME_START_TO_PAIR_NUM
 )
+
+logger = logging.getLogger(__name__)
 from database import (
     check_access, grant_access, get_user_group, set_user_group, 
     get_user_settings, toggle_setting, revoke_access_delete_user,
-    get_allowed_users_ids, get_all_users_info
+    get_allowed_users_ids, get_all_users_info, get_user_style
 )
 from parser import get_week_parity
 from tasks import update_schedule_data
@@ -24,7 +27,7 @@ async def send_group_selection(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("Б-ПИ-101", callback_data="setgroup_Б-ПИ-101")],
         [InlineKeyboardButton("Б-ПИ-102", callback_data="setgroup_Б-ПИ-102")]
     ]
-    txt = "🎓 <b>Выберите вашу группу:</b>"
+    txt = " <b>Выберите вашу группу:</b>"
     if update.callback_query:
         await update.callback_query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
     else:
@@ -35,7 +38,11 @@ async def group_selection_handler(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     grp = query.data.split("_")[1]
     set_user_group(query.from_user.id, grp)
-    await query.edit_message_text(f"✅ Выбрана группа: <b>{grp}</b>", parse_mode=ParseMode.HTML)
+    use_new_style = get_user_style(query.from_user.id)
+    if use_new_style:
+        await query.edit_message_text(f" <tg-emoji emoji-id='5427009714745517609'>✅</tg-emoji> Выбрана группа: <b>{grp}</b>", parse_mode=ParseMode.HTML)
+    else:
+        await query.edit_message_text(f"✅ Выбрана группа: <b>{grp}</b>", parse_mode=ParseMode.HTML)
     await start(update, context)
 
 def get_day_name_ru(date_obj):
@@ -49,7 +56,10 @@ async def generate_schedule_message(user_id, target_date):
     grp = get_user_group(user_id)
     if not grp: return "⚠️ Группа не выбрана. Нажмите /start", None
     
-    if not schedule_cache['data']: return "⏳ Расписание загружается...", None
+    use_new_style = get_user_style(user_id)
+
+    if not schedule_cache['data']: 
+        return ("<tg-emoji emoji-id='5451646226975955576'>⌛️</tg-emoji> Расписание загружается..." if use_new_style else "⏳ Расписание загружается..."), None
     
     grp_data = schedule_cache['data'].get(grp)
     if not grp_data: return f"❌ Данных для {grp} пока нет.", None
@@ -63,15 +73,22 @@ async def generate_schedule_message(user_id, target_date):
     date_str = target_date.strftime('%d.%m')
     
     upd_time = schedule_cache['last_update'].strftime('%d.%m %H:%M') if schedule_cache['last_update'] else "Неизвестно"
-    text = f"🗓 <b>{day_name}</b> | {date_str}\n🎓 {grp} ({w_type})\n🕒 Обновлено: {upd_time}\n{'='*25}"
+    
+    if use_new_style:
+        text = f"<tg-emoji emoji-id='5274055917766202507'>🗓</tg-emoji> <b>{day_name}</b> | {date_str}\n<tg-emoji emoji-id='5375163339154399459'>🎓</tg-emoji> {grp} ({w_type})\n<tg-emoji emoji-id='5451646226975955576'>⌛️</tg-emoji> Обновлено: {upd_time}\n{'='*25}"
+    else:
+        text = f"🗓 <b>{day_name}</b> | {date_str}\n🎓 {grp} ({w_type})\n🕒 Обновлено: {upd_time}\n{'='*25}"
     
     if not pairs:
-        text += "\n😴 Пар нет!"
+        text += ("\n<tg-emoji emoji-id='5404743771059395517'>😴</tg-emoji> Пар нет!" if use_new_style else "\n😴 Пар нет!")
     else:
         for p in sorted(pairs.keys()):
             times = CLASS_TIMES.get(p)
             t_str = f"{times['start'][0]:02}:{times['start'][1]:02} - {times['end'][0]:02}:{times['end'][1]:02}" if times else "??"
-            text += f"\n\n⏰ <b>{t_str}</b>\n📚 {pairs[p]}"
+            if use_new_style:
+                text += f"\n\n<tg-emoji emoji-id='5413704112220949842'>⏰</tg-emoji> <b>{t_str}</b>\n<tg-emoji emoji-id='5373098009640836781'>📚</tg-emoji> {pairs[p]}"
+            else:
+                text += f"\n\n⏰ <b>{t_str}</b>\n📚 {pairs[p]}"
             
     prev_date = target_date - datetime.timedelta(days=1)
     if prev_date.weekday() == 6: 
@@ -85,11 +102,18 @@ async def generate_schedule_message(user_id, target_date):
     next_cb = f"sched_{next_date.strftime('%Y-%m-%d')}"
     today_cb = f"sched_{datetime.datetime.now(TZ_SARATOV).date().strftime('%Y-%m-%d')}"
     
-    kb = [
-        [InlineKeyboardButton(f"⬅️ {get_day_name_ru(prev_date)}", callback_data=prev_cb),
-         InlineKeyboardButton(f"{get_day_name_ru(next_date)} ➡️", callback_data=next_cb)],
-        [InlineKeyboardButton("📅 Сегодня", callback_data=today_cb)]
-    ]
+    if use_new_style:
+        kb = [
+            [InlineKeyboardButton(f"⬅️ {get_day_name_ru(prev_date)}", callback_data=prev_cb, api_kwargs={"style": "primary"}),
+             InlineKeyboardButton(f"{get_day_name_ru(next_date)} ➡️", callback_data=next_cb, api_kwargs={"style": "primary"})],
+            [InlineKeyboardButton("Сегодня", callback_data=today_cb, api_kwargs={"icon_custom_emoji_id": "5274055917766202507"})]
+        ]
+    else:
+        kb = [
+            [InlineKeyboardButton(f"⬅️ {get_day_name_ru(prev_date)}", callback_data=prev_cb),
+             InlineKeyboardButton(f"{get_day_name_ru(next_date)} ➡️", callback_data=next_cb)],
+            [InlineKeyboardButton("📅 Сегодня", callback_data=today_cb)]
+        ]
     return text, InlineKeyboardMarkup(kb)
 
 async def schedule_navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,20 +129,33 @@ async def schedule_navigation_handler(update: Update, context: ContextTypes.DEFA
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
     msg_func = update.callback_query.message.reply_text if update.callback_query else update.message.reply_text
+    use_new_style = get_user_style(user_id)
+    
     if not check_access(user_id):
-        await msg_func(f"⛔ <b>Доступ запрещен.</b>\nID: <code>{user_id}</code> \n для получения доступа перешлите сообщение администратору - @Grdfree", parse_mode=ParseMode.HTML)
+        txt = "⛔️ <b>Доступ запрещен.</b>" if not use_new_style else " <tg-emoji emoji-id='5260293700088511294'>⛔️</tg-emoji> <b>Доступ запрещен.</b>"
+        await msg_func(f"{txt}\nID: <code>{user_id}</code> \n для получения доступа перешлите сообщение администратору - @Grdfree", parse_mode=ParseMode.HTML)
         return
     grant_access(user_id)
     grp = get_user_group(user_id)
     if not grp:
         await send_group_selection(update, context)
         return
-    kb = [[KeyboardButton("📅 Расписание")], [KeyboardButton("⚙️ Настройки")]]
+    
+    if use_new_style:
+        kb = [[KeyboardButton(text = "Расписание", api_kwargs={"style": "primary", "icon_custom_emoji_id": "5274055917766202507"})], [KeyboardButton("Настройки", api_kwargs={"icon_custom_emoji_id": "5818705028424141605"})]]
+    else:
+        kb = [[KeyboardButton("📅 Расписание")], [KeyboardButton("⚙️ Настройки")]]
+
     if user_id == ADMIN_ID: kb.append([KeyboardButton("🔄 Обновить")])
     upd_time = "..."
     if schedule_cache['last_update']:
         upd_time = schedule_cache['last_update'].strftime('%d.%m %H:%M')
-    welcome_text = (f"👋 <b>Главное меню</b>\n\n🎓 Твоя группа: <b>{grp}</b>\n🕒 Данные от: <b>{upd_time}</b>\n\n👇 Выбери действие:")
+        
+    if use_new_style:
+        welcome_text = (f"<tg-emoji emoji-id='5472055112702629499'>👋</tg-emoji> <b>Главное меню</b>\n\n<tg-emoji emoji-id='5375163339154399459'>🎓</tg-emoji> Твоя группа: <b>{grp}</b>\n<tg-emoji emoji-id='5451646226975955576'>⌛️</tg-emoji> Данные от: <b>{upd_time}</b>\n\n<tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji>")
+    else:
+        welcome_text = (f"👋 <b>Главное меню</b>\n\n🎓 Твоя группа: <b>{grp}</b>\n🕒 Данные от: <b>{upd_time}</b>\n\n👇 Выбери действие:")
+        
     await msg_func(welcome_text, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True), parse_mode=ParseMode.HTML)
     if not schedule_cache['data']: 
         asyncio.create_task(update_schedule_data(context))
@@ -127,11 +164,11 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
     if not check_access(user_id): return
     txt = update.message.text
-    if txt == "📅 Расписание":
+    if txt == "Расписание" or txt == "📅 Расписание":
         now = datetime.datetime.now(TZ_SARATOV).date()
         text, markup = await generate_schedule_message(user_id, now)
         await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-    elif txt == "⚙️ Настройки": 
+    elif txt == "Настройки" or txt == "⚙️ Настройки": 
         await send_settings_menu(update, context)
     elif txt == "🔄 Обновить":
         if user_id != ADMIN_ID: return
@@ -148,29 +185,94 @@ async def send_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.effective_chat.id
     s = get_user_settings(user_id)
     if not s: return
-    n20, n10, n5, n_ch = s
-    kb = [
-        [InlineKeyboardButton(f"{'✅' if n20 else '❌'} Уведомлять за 20 мин", callback_data="toggle_20")],
-        [InlineKeyboardButton(f"{'✅' if n10 else '❌'} Уведомлять за 10 мин", callback_data="toggle_10")],
-        [InlineKeyboardButton(f"{'✅' if n5 else '❌'} Уведомлять за 5 мин", callback_data="toggle_5")],
-        [InlineKeyboardButton(f"{'✅' if n_ch else '❌'} Уведомлять об изменениях", callback_data="toggle_changes")],
-        [InlineKeyboardButton("🎓 Сменить группу", callback_data="change_grp")]
-    ]
-    txt = "⚙️ <b>Настройки уведомлений</b>\n\n🟢 Включено | 🔴 Выключено"
-    if update.callback_query:
-        try: await update.callback_query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
-        except BadRequest: pass
+    n20, n10, n5, n_ch, use_new_style = s
+    
+    if use_new_style:
+        kb = [
+            [InlineKeyboardButton(f"Уведомлять за 20 мин", callback_data="toggle_20", 
+                                  api_kwargs={"style": "success" if n20 else "danger"})],
+            [InlineKeyboardButton(f"Уведомлять за 10 мин", callback_data="toggle_10", 
+                                  api_kwargs={"style": "success" if n10 else "danger"})],
+            [InlineKeyboardButton(f"Уведомлять за 5 мин", callback_data="toggle_5", 
+                                  api_kwargs={"style": "success" if n5 else "danger"})],
+            [InlineKeyboardButton(f"Уведомлять об изменениях", callback_data="toggle_changes", 
+                                  api_kwargs={"style": "success" if n_ch else "danger"})],
+            [InlineKeyboardButton("Сменить группу", callback_data="change_grp", api_kwargs={"icon_custom_emoji_id": "5375163339154399459", "style": "primary"})],
+            [InlineKeyboardButton("Старый стиль", callback_data="toggle_new_style")]
+        ]
+        text_content = '''<tg-emoji emoji-id='5818705028424141605'>⚙️</tg-emoji> <b>Настройки пользователя</b>\n\nНастройка уведомлений:\nУведомлнение до пары за 20,10 и 5 минут, а также уведомление о изменении в расписании\n\nНастройки внешнего вида:\n<blockquote expandable>Новый стиль:
+Анимированные эмодзи: Обычные смайлы заменил на красивые анимированные и цветные иконки. 
+Цветные индикаторы: сделан акцент на ключевых кнопках. Понятно без чтения текста. 
+Иконки на кнопках: В меню появились анимированные значки (календарь, шестеренка, стрелки).
+
+Старый стиль:
+Стиль по умолчанию без всех улучшений из нового.</blockquote>\n🟢 Включено | 🔴 Выключено'''
     else:
-        await update.message.reply_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        kb = [
+            [InlineKeyboardButton(f"{'✅' if n20 else '❌'} Уведомлять за 20 мин", callback_data="toggle_20")],
+            [InlineKeyboardButton(f"{'✅' if n10 else '❌'} Уведомлять за 10 мин", callback_data="toggle_10")],
+            [InlineKeyboardButton(f"{'✅' if n5 else '❌'} Уведомлять за 5 мин", callback_data="toggle_5")],
+            [InlineKeyboardButton(f"{'✅' if n_ch else '❌'} Уведомлять об изменениях", callback_data="toggle_changes")],
+            [InlineKeyboardButton("🎓 Сменить группу", callback_data="change_grp")],
+            [InlineKeyboardButton("Новый стиль", callback_data="toggle_new_style")]
+        ]
+        text_content = '''⚙️ <b>Настройки пользователя</b>\n\nНастройка уведомлений:\nУведомлнение до пары за 20,10 и 5 минут, а также уведомление о изменении в расписании\n\nНастройки внешнего вида:\n<blockquote expandable>Новый стиль:
+Анимированные эмодзи: Обычные смайлы заменил на красивые анимированные и цветные иконки. 
+Цветные индикаторы: сделан акцент на ключевых кнопках. Понятно без чтения текста. 
+Иконки на кнопках: В меню появились анимированные значки (календарь, шестеренка, стрелки).
+
+Старый стиль:
+Стиль по умолчанию без всех улучшений из нового.</blockquote>\n🟢 Включено | 🔴 Выключено'''
+
+    if update.callback_query:
+        try: 
+            await update.callback_query.edit_message_text(text_content, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        except BadRequest as e:
+            if "Message is not modified" in str(e): pass
+            else:
+                try:
+                    await update.callback_query.message.delete()
+                    await update.callback_query.message.reply_text(text_content, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+                except: pass
+    else:
+        await update.message.reply_text(text_content, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
 
 async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+    
+    user_id = q.from_user.id
+    
     if q.data == "change_grp":
         await send_group_selection(update, context)
         return
+    if q.data == "toggle_new_style":
+        toggle_setting(user_id, "use_new_style")
+
+        use_new_style = get_user_style(user_id)
+
+        await send_settings_menu(update, context)
+        
+        if use_new_style:
+            kb = [[KeyboardButton(text = "Расписание", api_kwargs={"style": "primary", "icon_custom_emoji_id": "5274055917766202507"})], [KeyboardButton("Настройки", api_kwargs={"icon_custom_emoji_id": "5818705028424141605"})]]
+        else:
+            kb = [[KeyboardButton("📅 Расписание")], [KeyboardButton("⚙️ Настройки")]]
+            
+        if user_id == ADMIN_ID: kb.append([KeyboardButton("🔄 Обновить")])
+        
+        try:
+            msg = await context.bot.send_message(
+                chat_id=user_id, 
+                text="🎨 Стиль обновлен! Клавиатура изменена.", 
+                reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+            )
+        except Exception as e:
+            logger.info(f"Failed to update keyboard: {e}")
+
+        return
+        
     if q.data.startswith("toggle_"):
-        toggle_setting(q.from_user.id, q.data.replace("toggle_", "notify_"))
+        toggle_setting(user_id, q.data.replace("toggle_", "notify_"))
         await send_settings_menu(update, context)
 
 async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -224,7 +326,7 @@ async def list_users_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     msg = "👥 <b>Список пользователей:</b>\n\n"
     for u in users:
-        uid, is_allowed, group_name, n20, n10, n5, n_ch = u
+        uid, is_allowed, group_name, n20, n10, n5, n_ch, use_new_style = u
         notif_time = []
         if n20: notif_time.append("20")
         if n10: notif_time.append("10")
