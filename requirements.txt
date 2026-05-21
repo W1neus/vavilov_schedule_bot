@@ -1,0 +1,9 @@
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+pdfplumber>=0.11.0
+pytz>=2024.1
+python-dotenv>=1.0.1
+aiosqlite>=0.20.0
+python-telegram-bot[job-queue]>=21.1.1
+Pillow>=10.3.0
+urllib3>=2.2.1

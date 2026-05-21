@@ -1,5 +1,0 @@
-requests
-pdfplumber
-pytz
-beautifulsoup4
-python-telegram-bot[job-queue]

@@ -1,2 +1,13 @@
-/bot_users.db
+/parser_logic_description.md
+/schedule.json
 /__pycache__
+/tgbot/__pycache__
+tgbot/bot_users.db
+schedule_test.png
+pdf_cache.json
+test_image.py
+schedule_horiz.png
+schedule_vert.png
+tgbot/.env
+/data/
+
